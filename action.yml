@@ -1,0 +1,73 @@
+name: Deploy over WireGuard
+description: Deploys the checked out commit to a host, over SSH through WireGuard
+inputs:
+  wireguard-private-key:
+    description: The repo's WireGuard private key
+    required: true
+  wireguard-address:
+    description: The repo's WireGuard address
+    required: true
+  wireguard-endpoint:
+    description: The WireGuard gateway's endpoint
+    required: true
+  wireguard-peer-public-key:
+    description: The WireGuard gateway's public key
+    required: true
+  deploy-ssh-key:
+    description: The SSH key the host takes deploys from
+    required: true
+  deploy-known-hosts:
+    description: The host's key, in known_hosts format
+    required: true
+  deploy-host:
+    description: The host's address
+    required: true
+  deploy-user:
+    description: The user to deploy as on the host
+    required: true
+runs:
+  using: composite
+  steps:
+    # The gateway should only let this peer SSH to the host
+    - name: Connect over WireGuard
+      shell: bash
+      run: |
+        sudo apt-get update --quiet
+        sudo apt-get install --quiet --yes --no-install-recommends wireguard-tools
+        umask 077
+        printf '%s\n' \
+          '[Interface]' \
+          "PrivateKey = $WIREGUARD_PRIVATE_KEY" \
+          "Address = $WIREGUARD_ADDRESS/32" \
+          '[Peer]' \
+          "PublicKey = $WIREGUARD_PEER_PUBLIC_KEY" \
+          "Endpoint = $WIREGUARD_ENDPOINT" \
+          "AllowedIPs = $DEPLOY_HOST/32" \
+          'PersistentKeepalive = 25' > "$RUNNER_TEMP/wg0.conf"
+        # AppArmor only lets wg-quick read its configs in /etc/wireguard
+        sudo install -m 600 "$RUNNER_TEMP/wg0.conf" /etc/wireguard/wg0.conf
+        sudo wg-quick up wg0
+      env:
+        WIREGUARD_PRIVATE_KEY: ${{ inputs.wireguard-private-key }}
+        WIREGUARD_ADDRESS: ${{ inputs.wireguard-address }}
+        WIREGUARD_PEER_PUBLIC_KEY: ${{ inputs.wireguard-peer-public-key }}
+        WIREGUARD_ENDPOINT: ${{ inputs.wireguard-endpoint }}
+        DEPLOY_HOST: ${{ inputs.deploy-host }}
+    # The key's forced command reads `deploy <sha>` and the release on stdin
+    - name: Deploy
+      shell: bash
+      run: |
+        set -o pipefail
+        umask 077
+        printf '%s\n' "$DEPLOY_SSH_KEY" > "$RUNNER_TEMP/deploy_key"
+        printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$RUNNER_TEMP/known_hosts"
+        git archive --format=tar.gz --prefix=release/ HEAD |
+          ssh -i "$RUNNER_TEMP/deploy_key" -o IdentitiesOnly=yes -o BatchMode=yes \
+            -o UserKnownHostsFile="$RUNNER_TEMP/known_hosts" -o StrictHostKeyChecking=yes \
+            -o ConnectTimeout=30 -o ServerAliveInterval=15 \
+            "$DEPLOY_USER@$DEPLOY_HOST" deploy "$(git rev-parse HEAD)"
+      env:
+        DEPLOY_SSH_KEY: ${{ inputs.deploy-ssh-key }}
+        DEPLOY_KNOWN_HOSTS: ${{ inputs.deploy-known-hosts }}
+        DEPLOY_HOST: ${{ inputs.deploy-host }}
+        DEPLOY_USER: ${{ inputs.deploy-user }}
