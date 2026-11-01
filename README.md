@@ -60,7 +60,7 @@ jobs:
         with:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
-      - uses: Starkast/deploy@<full commit SHA>
+      - uses: Starkast/deploy@64d9335455a12d00af6e846e15d8439ade46c37f
         with:
           wireguard-private-key: ${{ secrets.WIREGUARD_PRIVATE_KEY }}
           wireguard-address: ${{ vars.WIREGUARD_ADDRESS }}
