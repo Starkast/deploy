@@ -77,3 +77,32 @@ whoever can move a tag here could read them.
 
 The environment stays in the calling workflow. A composite action can't declare
 one, and the keys are the environment's.
+
+## Secrets
+
+`bin/deploy-secrets` keeps a repo's secrets in the repo, encrypted with
+[age](https://github.com/FiloSottile/age). Each secret is one file in `secrets/`,
+encrypted to the keys in `secrets/recipients`: the people who should read them,
+from their SSH keys on GitHub, and the host's key, so it can decrypt them on
+deploy.
+
+```sh
+deploy-secrets add-github <user>
+deploy-secrets add age1... <host>
+
+deploy-secrets set API_TOKEN      # asks for the value
+fly ssh console -C env | deploy-secrets import API_TOKEN OTHER_TOKEN
+
+deploy-secrets list
+deploy-secrets get API_TOKEN
+deploy-secrets rekey              # after changing secrets/recipients
+```
+
+Setting a secret only takes the public keys. Reading one, or a `rekey`, takes a
+private key: `~/.ssh/id_ed25519`, or the file in `DEPLOY_SECRETS_IDENTITY`. age
+can read SSH keys from files, but not from an SSH agent, and it can't use security
+key (`sk-`) types, so people using those need an age key instead (`age-keygen`,
+then `deploy-secrets add`).
+
+Removing someone from `secrets/recipients` and running `rekey` only protects new
+values: they could read the old ones, and git keeps them. Change the secrets too.
